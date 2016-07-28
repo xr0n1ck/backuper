@@ -1,0 +1,17 @@
+#!/bin/bash
+##backup
+source /config/backup.cfg
+
+###MYSQL BACKUP
+if [ $mysql_host ] && [ $mysql_db_name ] && [ $mysql_db_user ] && [ $mysql_db_password ] && [ $mysql_backup_age ]; then
+  mkdir -p /backup/mysql
+  ##create mysqldump
+  timestamp=$(date +%Y-%m-%d_%H%M%S)
+  mysqldump  --single-transaction --routines --add-drop-table --allow-keywords -q -c -h"$mysql_host" -u"$mysql_db_user" -p"$mysql_db_password" "$mysql_db_name" \
+   | /bin/gzip -9 > /backup/mysql/"$mysql_db_name"_"$timestamp".sql.gz
+  ##upload backup to object storage
+  /usr/bin/python /config/backupUploader/backupUploader.py --config /config/backup.cfg --container $upload_container/mysql --path /backup/mysql/"$mysql_db_name"_"$timestamp".sql.gz
+  ##Delete files db older than mysql_backup_age days
+  rm -f `find /backup/mysql/$mysql_db_name* -mtime +$mysql_backup_age`
+fi
+
