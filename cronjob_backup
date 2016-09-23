@@ -1,17 +1,62 @@
 #!/bin/bash
 ##backup
 source /config/backup.cfg
+timestamp=$(date +%Y-%m-%d_%H%M%S)
+
+function upload ()
+{
+  ##upload backup to object storage
+  /usr/bin/python /config/backupUploader/backupUploader.py --config /config/backup.cfg --container $upload_container/$backup_prefix$1 --path /backup/$1/$2
+}
+
+function remove_old_backups()
+{
+  ##Delete files db older than backup_age days
+  rm -f `find /backup/$1* -mtime +$backup_age`
+}
+
 
 ###MYSQL BACKUP
-if [ $mysql_host ] && [ $mysql_db_name ] && [ $mysql_db_user ] && [ $mysql_db_password ] && [ $mysql_backup_age ]; then
+if [ $mysql_host ] && [ $mysql_db_name ] && [ $mysql_db_user ] && [ $mysql_db_password ] && [ $backup_age ]; then
   mkdir -p /backup/mysql
-  ##create mysqldump
-  timestamp=$(date +%Y-%m-%d_%H%M%S)
-  mysqldump  --single-transaction --routines --add-drop-table --allow-keywords -q -c -h"$mysql_host" -u"$mysql_db_user" -p"$mysql_db_password" "$mysql_db_name" \
-   | /bin/gzip -9 > /backup/mysql/"$mysql_db_name"_"$timestamp".sql.gz
-  ##upload backup to object storage
-  /usr/bin/python /config/backupUploader/backupUploader.py --config /config/backup.cfg --container $upload_container/mysql --path /backup/mysql/"$mysql_db_name"_"$timestamp".sql.gz
-  ##Delete files db older than mysql_backup_age days
-  rm -f `find /backup/mysql/$mysql_db_name* -mtime +$mysql_backup_age`
+  for db in $mysql_db_name
+  do
+    ##create mysqldump
+    mysqldump  --single-transaction --routines --add-drop-table --allow-keywords -q -c -h"$mysql_host" -u"$mysql_db_user" -p"$mysql_db_password" "$db" \
+     | /bin/gzip -9 > /backup/mysql/"$db"_"$timestamp".sql.gz
+    ##upload backup to object storage
+    upload mysql "$db"_"$timestamp".sql.gz
+     remove_old_backups mysql/$db
+  done
 fi
 
+###PSQL BACKUP
+if [ $psql_host ] && [ $psql_database ] && [ $psql_user ] && [ $psql_password ] && [ $backup_age ]; then
+  mkdir -p /backup/psql
+  export PGPASSWORD=$psql_password
+  for db in $psql_database
+    do  
+    ##create pg_dump
+    pg_dump -h $psql_host -U $psql_user $db | /bin/gzip -9 > /backup/psql/"$db"_"$timestamp".sql.gz 
+    upload psql "$db"_"$timestamp".sql.gz
+    remove_old_backups psql/$db
+  done  
+fi
+
+###MONGODB BACKUP
+if [ $mongo_host ] && [ $backup_age ]; then
+  mkdir -p /backup/mongodb/dump
+  ##create mongo dump
+  if [ $mongo_database ]; then
+    for db in $mongo_database
+      do  
+      mongodump --host $mongo_host -d $mongo_database -o /backup/mongodb/dump
+    done 
+  else
+      mongodump --host $mongo_host -o /backup/mongodb/dump
+  fi
+  tar cvfz /backup/mongodb/"mongodb"_"$timestamp".tar.gz /backup/mongodb/dump
+  rm -rf /backup/mongodb/dump
+  upload mongodb "mongodb"_"$timestamp".tar.gz
+  remove_old_backups mongodb/mongodb_
+fi
