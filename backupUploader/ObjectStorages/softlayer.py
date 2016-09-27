@@ -34,9 +34,10 @@ class slObjectStorage(object):
 
     def uploadFile(self, container, filePath):
         filename = os.path.basename(filePath)
-        response = requests.put("%s/%s/%s" % (self.storageUrl, container, filename), files={'file': open(filePath,'rb')}, headers={"X-Auth-Token": self.authToken})
-        result = "BackupUploader: Upload %s to %s with status %s (%s)" %(filePath, self.url, response.status_code, response.reason)
-        return result
+        with open(filePath,'rb') as rawdata:
+            response = requests.put("%s/%s/%s" % (self.storageUrl, container, filename), data=rawdata, headers={"X-Auth-Token": self.authToken, "X-Detect-Content-Type": True})
+            result = "BackupUploader: Upload %s to %s with status %s (%s)" %(filePath, self.url, response.status_code, response.reason)
+            return result
 
     def upload(self, container, path):
         if not self.checkContainer(container):
